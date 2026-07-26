@@ -1,0 +1,11 @@
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+.DS_Store
+.cursor/
+testdata/artifacts/
+coverage.out
+coverage.html
+**/testdata/fuzz/

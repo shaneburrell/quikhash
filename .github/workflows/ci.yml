@@ -1,0 +1,67 @@
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: Test
+        run: go test ./...
+      - name: Race
+        run: go test -race ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.11.3
+          args: --timeout=5m
+      - name: Coverage
+        run: |
+          mkdir -p testdata/artifacts
+          go test ./internal/... -coverprofile=testdata/artifacts/coverage.out -covermode=atomic
+          go tool cover -func=testdata/artifacts/coverage.out | tee testdata/artifacts/coverage.txt
+          total=$(go tool cover -func=testdata/artifacts/coverage.out | awk '/^total:/{print $3}' | tr -d '%')
+          echo "total coverage: ${total}%"
+          awk -v t="$total" 'BEGIN{ if (t+0 < 70.0) { printf("coverage %.1f%% is below 70.0%% gate\n", t); exit 1 } }'
+
+  build-matrix:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          ext=""
+          if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
+          go build -o "quikhash_${GOOS}_${GOARCH}${ext}" ./cmd/quikhash
