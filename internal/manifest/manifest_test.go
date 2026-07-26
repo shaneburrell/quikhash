@@ -107,8 +107,16 @@ func TestParseDigest(t *testing.T) {
 	if err != nil || got != d {
 		t.Fatalf("parse: %v %v", got, err)
 	}
+	upper := strings.ToUpper(d.String())
+	got2, err := ParseDigest(upper)
+	if err != nil || got2 != d {
+		t.Fatalf("upper: %v %v", got2, err)
+	}
 	if _, err := ParseDigest("zz"); err == nil {
 		t.Fatal("expected error")
+	}
+	if _, err := ParseDigest(strings.Repeat("g", 64)); err == nil {
+		t.Fatal("expected invalid hex")
 	}
 }
 
@@ -124,5 +132,91 @@ func TestValidateRejectsGaps(t *testing.T) {
 	}
 	if err := m.Validate(); err == nil {
 		t.Fatal("expected gap error")
+	}
+}
+
+func TestValidateAndDecodeErrors(t *testing.T) {
+	cases := []Manifest{
+		{Version: Version, Size: -1, Digest: strings.Repeat("a", 64)},
+		{Version: Version, Size: 1, Digest: "", Chunks: []ChunkEntry{{Offset: 0, Length: 1, Digest: strings.Repeat("b", 64)}}},
+		{Version: Version, Size: 1, Digest: strings.Repeat("a", 64), Chunks: []ChunkEntry{{Offset: 0, Length: 0, Digest: strings.Repeat("b", 64)}}},
+		{Version: Version, Size: 1, Digest: strings.Repeat("a", 64), Chunks: []ChunkEntry{{Offset: 0, Length: 1, Digest: ""}}},
+		{Version: Version, Size: 2, Digest: strings.Repeat("a", 64), Chunks: []ChunkEntry{{Offset: 0, Length: 1, Digest: strings.Repeat("b", 64)}}},
+	}
+	for i, m := range cases {
+		if err := m.Validate(); err == nil {
+			t.Fatalf("case %d: expected validate error", i)
+		}
+	}
+
+	if _, err := Decode(strings.NewReader(`{`)); err == nil {
+		t.Fatal("expected json error")
+	}
+	if _, err := Decode(strings.NewReader(`{"version":99,"size":0,"digest":"","chunks":[]}`)); err == nil {
+		t.Fatal("expected version error")
+	}
+	m, err := Decode(strings.NewReader(`{"size":0,"digest":"","chunks":[]}`))
+	if err != nil || m.Version != Version {
+		t.Fatalf("default version: %+v %v", m, err)
+	}
+	if _, err := ReadFile(filepath.Join(t.TempDir(), "missing.json")); err == nil {
+		t.Fatal("expected missing file")
+	}
+}
+
+func TestVerifyMismatchAndDumpErrors(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.bin")
+	data := bytes.Repeat([]byte("abcdefghij"), 2000)
+	if err := os.WriteFile(src, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	opt := chunk.Options{AvgSize: 2 * 1024, MinSize: 512, MaxSize: 8 * 1024}
+	m, err := HashFile(src, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Truncate file so chunk counts diverge (exercises abs).
+	if err := os.WriteFile(src, data[:len(data)/3], 0o644); err != nil {
+		t.Fatal(err)
+	}
+	vr, err := Verify(src, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if vr.OK || vr.ChunksFail == 0 {
+		t.Fatalf("expected mismatch: %+v", vr)
+	}
+
+	if _, err := Dump(src, m, DumpOptions{}); err == nil {
+		t.Fatal("expected empty out dir error")
+	}
+
+	// Reconstruct missing chunk.
+	chunkDir := filepath.Join(dir, "chunks")
+	if err := os.MkdirAll(chunkDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "out.bin")
+	if err := Reconstruct(m, ReconstructOptions{ChunksDir: chunkDir, OutPath: out}); err == nil {
+		t.Fatal("expected missing chunk error")
+	}
+	if err := Reconstruct(m, ReconstructOptions{}); err == nil {
+		t.Fatal("expected missing args")
+	}
+}
+
+func TestFromSignatureDefaults(t *testing.T) {
+	sig := chunk.FileSignature{Size: 0, Digest: chunk.Digest{}}
+	m := FromSignature("p", sig, chunk.Options{})
+	if m.AvgSize != chunk.DefaultAvgSize || m.MinSize != chunk.DefaultMinSize || m.MaxSize != chunk.DefaultMaxSize {
+		t.Fatalf("%+v", m)
+	}
+}
+
+func TestAbs(t *testing.T) {
+	if abs(-3) != 3 || abs(2) != 2 {
+		t.Fatal("abs")
 	}
 }
