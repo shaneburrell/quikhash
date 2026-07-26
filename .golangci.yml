@@ -37,7 +37,7 @@ linters:
           disabled: true
         - name: if-return
         - name: increment-decrement
-        - name: var-declaration
+        - name: var-naming
         - name: package-comments
           disabled: true
         - name: range
@@ -48,7 +48,21 @@ linters:
         - name: errorf
         - name: empty-block
         - name: superfluous-else
-        - name: unused-parameter
-          disabled: true
         - name: unreachable-code
-        - name: redefines-builtin-id
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+    rules:
+      - linters:
+          - errcheck
+        path: _test\.go
+      - linters:
+          - unparam
+        path: _test\.go
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

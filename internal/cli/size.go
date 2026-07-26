@@ -15,7 +15,6 @@ func parseSize(s string) (uint32, error) {
 		return 0, fmt.Errorf("empty size")
 	}
 	s = strings.ReplaceAll(s, "_", "")
-	mul := uint64(1)
 	end := len(s)
 	for end > 0 && unicode.IsLetter(rune(s[end-1])) {
 		end--
@@ -25,6 +24,7 @@ func parseSize(s string) (uint32, error) {
 	}
 	numPart := s[:end]
 	suf := strings.ToLower(s[end:])
+	var mul uint64
 	switch suf {
 	case "", "b":
 		mul = 1
@@ -53,13 +53,13 @@ func chunkOptsFromFlags(f ChunkSizeFlags) (chunk.Options, error) {
 	if err != nil {
 		return chunk.Options{}, fmt.Errorf("avg-size: %w", err)
 	}
-	min, err := parseSize(f.MinSize)
+	minSize, err := parseSize(f.MinSize)
 	if err != nil {
 		return chunk.Options{}, fmt.Errorf("min-size: %w", err)
 	}
-	max, err := parseSize(f.MaxSize)
+	maxSize, err := parseSize(f.MaxSize)
 	if err != nil {
 		return chunk.Options{}, fmt.Errorf("max-size: %w", err)
 	}
-	return chunk.Options{AvgSize: avg, MinSize: min, MaxSize: max}, nil
+	return chunk.Options{AvgSize: avg, MinSize: minSize, MaxSize: maxSize}, nil
 }

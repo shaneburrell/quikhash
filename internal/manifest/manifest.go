@@ -13,14 +13,14 @@ const Version = 1
 
 // Manifest describes a content-addressed file as ordered FastCDC chunks.
 type Manifest struct {
-	Version int           `json:"version"`
-	Path    string        `json:"path,omitempty"`
-	Size    int64         `json:"size"`
-	Digest  string        `json:"digest"`
-	AvgSize uint32        `json:"avg_size"`
-	MinSize uint32        `json:"min_size"`
-	MaxSize uint32        `json:"max_size"`
-	Chunks  []ChunkEntry  `json:"chunks"`
+	Version int          `json:"version"`
+	Path    string       `json:"path,omitempty"`
+	Size    int64        `json:"size"`
+	Digest  string       `json:"digest"`
+	AvgSize uint32       `json:"avg_size"`
+	MinSize uint32       `json:"min_size"`
+	MaxSize uint32       `json:"max_size"`
+	Chunks  []ChunkEntry `json:"chunks"`
 }
 
 // ChunkEntry is one content-defined chunk in a manifest.

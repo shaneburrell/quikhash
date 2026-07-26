@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 
@@ -34,10 +33,10 @@ func newDiffCmd() *cobra.Command {
 			fmt.Printf("only_in_%s: %d\n", args[1], d.ChangedB)
 			if !quiet {
 				for _, c := range d.OnlyA {
-					fmt.Fprintf(os.Stdout, "- %s  offset=%d length=%d\n", c.Digest, c.Offset, c.Length)
+					fmt.Printf("- %s  offset=%d length=%d\n", c.Digest, c.Offset, c.Length)
 				}
 				for _, c := range d.OnlyB {
-					fmt.Fprintf(os.Stdout, "+ %s  offset=%d length=%d\n", c.Digest, c.Offset, c.Length)
+					fmt.Printf("+ %s  offset=%d length=%d\n", c.Digest, c.Offset, c.Length)
 				}
 			}
 			return nil
