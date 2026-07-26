@@ -30,6 +30,14 @@ quikhash diff old.json new.json
 
 ## Install
 
+### Homebrew
+
+```bash
+brew install shaneburrell/tap/quikhash
+```
+
+The formula is maintained in [`shaneburrell/homebrew-tap`](https://github.com/shaneburrell/homebrew-tap) and tracks GitHub Releases.
+
 ### Prebuilt binaries
 
 Download from [Releases](https://github.com/shaneburrell/quikhash/releases) for macOS, Linux, and Windows (amd64 & arm64).
@@ -49,6 +57,12 @@ git clone https://github.com/shaneburrell/quikhash.git
 cd quikhash
 make build
 ./bin/quikhash --version
+```
+
+Cross-compile everything:
+
+```bash
+make build-all   # → dist/ for darwin/linux/windows × amd64/arm64
 ```
 
 ## Commands
