@@ -227,7 +227,7 @@ func TestDiffDuplicateChunkCounts(t *testing.T) {
 	digB := strings.Repeat("b", 64)
 	digC := strings.Repeat("c", 64)
 	ma := Manifest{
-		Size: 12,
+		Size:   12,
 		Digest: digA,
 		Chunks: []ChunkEntry{
 			{Offset: 0, Length: 4, Digest: digB},
@@ -236,7 +236,7 @@ func TestDiffDuplicateChunkCounts(t *testing.T) {
 		},
 	}
 	mb := Manifest{
-		Size: 8,
+		Size:   8,
 		Digest: digC,
 		Chunks: []ChunkEntry{
 			{Offset: 0, Length: 4, Digest: digB},
@@ -259,7 +259,7 @@ func TestDiffDuplicateChunkCounts(t *testing.T) {
 
 	// Uppercase digests should still count as shared.
 	mbUpper := Manifest{
-		Size: 8,
+		Size:   8,
 		Digest: strings.ToUpper(digC),
 		Chunks: []ChunkEntry{
 			{Offset: 0, Length: 4, Digest: strings.ToUpper(digB)},
