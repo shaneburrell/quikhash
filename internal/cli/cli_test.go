@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/shaneburrell/quikhash/internal/manifest"
 )
 
 func TestE2ECommands(t *testing.T) {
@@ -76,11 +78,12 @@ func TestHashDirectoryAndResume(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := ExecuteArgs([]string{
+	hashArgs := []string{
 		"hash", root, "--out", out,
 		"--avg-size", "1K", "--min-size", "256", "--max-size", "4K",
-		"--workers", "2", "--json", "-q",
-	}); err != nil {
+		"--workers", "2", "-q",
+	}
+	if err := ExecuteArgs(append(hashArgs, "--json")); err != nil {
 		t.Fatalf("hash dir: %v", err)
 	}
 	for _, name := range []string{"a.txt", "b.txt", "sub/c.txt"} {
@@ -90,14 +93,78 @@ func TestHashDirectoryAndResume(t *testing.T) {
 		}
 	}
 
-	// Resume path: second run should skip when size+mtime match.
-	if err := ExecuteArgs([]string{
-		"hash", root, "--out", out,
-		"--avg-size", "1K", "--min-size", "256", "--max-size", "4K",
-		"--workers", "2", "-q",
-	}); err != nil {
+	manA := filepath.Join(out, "a.txt.quikhash.json")
+	st1, err := os.Stat(manA)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Resume path: second run should skip when content+params match.
+	if err := ExecuteArgs(hashArgs); err != nil {
 		t.Fatalf("hash dir resume: %v", err)
 	}
+	st2, err := os.Stat(manA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st1.ModTime().Equal(st2.ModTime()) {
+		t.Fatal("expected resume to leave sidecar mtime unchanged")
+	}
+
+	// Same-size content change with equalized mtimes must re-hash.
+	aPath := filepath.Join(root, "a.txt")
+	oldContent, err := os.ReadFile(aPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fileInfo, err := os.Stat(aPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newContent := []byte(strings.Repeat("X", len(oldContent)))
+	if err := os.WriteFile(aPath, newContent, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(aPath, fileInfo.ModTime(), fileInfo.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	// Touch sidecar so sameMTime still passes (old bug path).
+	if err := os.Chtimes(manA, time.Now(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	oldDigest := readManifestDigest(t, manA)
+	if err := ExecuteArgs(hashArgs); err != nil {
+		t.Fatalf("hash after content change: %v", err)
+	}
+	newDigest := readManifestDigest(t, manA)
+	if newDigest == oldDigest {
+		t.Fatal("expected re-hash after same-size content change")
+	}
+
+	// Chunk-param change must re-hash even when content is unchanged.
+	if err := ExecuteArgs([]string{
+		"hash", root, "--out", out,
+		"--avg-size", "2K", "--min-size", "512", "--max-size", "8K",
+		"--workers", "2", "-q",
+	}); err != nil {
+		t.Fatalf("hash with new params: %v", err)
+	}
+	m, err := manifest.ReadFile(manA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.AvgSize != 2*1024 {
+		t.Fatalf("avg_size=%d want %d after param change", m.AvgSize, 2*1024)
+	}
+}
+
+func readManifestDigest(t *testing.T, path string) string {
+	t.Helper()
+	m, err := manifest.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m.Digest
 }
 
 func TestHashStdoutAndVerifyFail(t *testing.T) {

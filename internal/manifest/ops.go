@@ -52,11 +52,11 @@ func Verify(path string, m Manifest) (VerifyResult, error) {
 	}
 	res := VerifyResult{
 		SizeMatch:   got.Size == m.Size,
-		DigestMatch: got.Digest == m.Digest,
+		DigestMatch: DigestEqual(got.Digest, m.Digest),
 	}
 	n := min(len(got.Chunks), len(m.Chunks))
 	for i := 0; i < n; i++ {
-		if got.Chunks[i].Digest == m.Chunks[i].Digest &&
+		if DigestEqual(got.Chunks[i].Digest, m.Chunks[i].Digest) &&
 			got.Chunks[i].Offset == m.Chunks[i].Offset &&
 			got.Chunks[i].Length == m.Chunks[i].Length {
 			res.ChunksOK++
@@ -100,6 +100,9 @@ type DumpResult struct {
 func Dump(path string, m Manifest, opt DumpOptions) (DumpResult, error) {
 	if opt.OutDir == "" {
 		return DumpResult{}, fmt.Errorf("out dir required")
+	}
+	if err := m.Validate(); err != nil {
+		return DumpResult{}, err
 	}
 	if err := os.MkdirAll(opt.OutDir, 0o755); err != nil {
 		return DumpResult{}, err

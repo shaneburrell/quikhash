@@ -113,7 +113,7 @@ func ChunkReader(r io.Reader, sizeHint int64, opt Options) (FileSignature, error
 			cut := findCut(data, opt.MinSize, opt.MaxSize, mask)
 			if cut == 0 {
 				// Need more data unless EOF.
-				if err == io.EOF || err == nil && n == 0 {
+				if err == io.EOF {
 					cut = len(data)
 				} else {
 					carry = append([]byte(nil), data...)
@@ -149,12 +149,21 @@ func ChunkReader(r io.Reader, sizeHint int64, opt Options) (FileSignature, error
 
 func readFill(r io.Reader, buf []byte) (int, error) {
 	n := 0
+	zeros := 0
 	for n < len(buf) {
 		nn, err := r.Read(buf[n:])
 		n += nn
 		if err != nil {
 			return n, err
 		}
+		if nn == 0 {
+			zeros++
+			if zeros >= 3 {
+				return n, fmt.Errorf("reader returned 0 bytes")
+			}
+			continue
+		}
+		zeros = 0
 	}
 	return n, nil
 }

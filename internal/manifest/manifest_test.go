@@ -135,6 +135,165 @@ func TestValidateRejectsGaps(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsNonHexDigests(t *testing.T) {
+	traversal := "../../../../etc/passwd"
+	m := Manifest{
+		Version: Version,
+		Size:    4,
+		Digest:  strings.Repeat("a", 64),
+		Chunks: []ChunkEntry{
+			{Offset: 0, Length: 4, Digest: traversal},
+		},
+	}
+	if err := m.Validate(); err == nil {
+		t.Fatal("expected non-hex chunk digest error")
+	}
+
+	m.Chunks[0].Digest = strings.Repeat("g", 64)
+	if err := m.Validate(); err == nil {
+		t.Fatal("expected invalid hex chunk digest error")
+	}
+
+	m.Chunks[0].Digest = strings.Repeat("b", 64)
+	m.Digest = traversal
+	if err := m.Validate(); err == nil {
+		t.Fatal("expected non-hex file digest error")
+	}
+}
+
+func TestReconstructRejectsPathTraversalDigest(t *testing.T) {
+	dir := t.TempDir()
+	chunks := filepath.Join(dir, "chunks")
+	if err := os.MkdirAll(chunks, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	secret := filepath.Join(dir, "secret.bin")
+	if err := os.WriteFile(secret, []byte("leak"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := Manifest{
+		Version: Version,
+		Size:    4,
+		Digest:  strings.Repeat("a", 64),
+		Chunks: []ChunkEntry{
+			{Offset: 0, Length: 4, Digest: "../secret.bin"},
+		},
+	}
+	out := filepath.Join(dir, "out.bin")
+	if err := Reconstruct(m, ReconstructOptions{ChunksDir: chunks, OutPath: out}); err == nil {
+		t.Fatal("expected validate error for path traversal digest")
+	}
+	if _, err := os.Stat(out); !os.IsNotExist(err) {
+		t.Fatal("reconstruct must not create output for invalid manifest")
+	}
+}
+
+func TestDumpRejectsInvalidManifest(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.bin")
+	if err := os.WriteFile(src, []byte("abcd"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := Manifest{
+		Version: Version,
+		Size:    4,
+		Digest:  strings.Repeat("a", 64),
+		Chunks: []ChunkEntry{
+			{Offset: 0, Length: 4, Digest: "../secret"},
+		},
+	}
+	if _, err := Dump(src, m, DumpOptions{OutDir: filepath.Join(dir, "chunks")}); err == nil {
+		t.Fatal("expected dump validate error")
+	}
+}
+
+func TestDigestEqualCaseInsensitive(t *testing.T) {
+	d := chunk.Sum([]byte("case"))
+	lower := d.String()
+	upper := strings.ToUpper(lower)
+	if !DigestEqual(lower, upper) {
+		t.Fatal("expected case-insensitive match")
+	}
+	if DigestEqual(lower, strings.Repeat("0", 64)) {
+		t.Fatal("expected mismatch")
+	}
+	if !DigestEqual("", "") {
+		t.Fatal("empty digests should match")
+	}
+}
+
+func TestDiffDuplicateChunkCounts(t *testing.T) {
+	digA := strings.Repeat("a", 64)
+	digB := strings.Repeat("b", 64)
+	digC := strings.Repeat("c", 64)
+	ma := Manifest{
+		Size: 12,
+		Digest: digA,
+		Chunks: []ChunkEntry{
+			{Offset: 0, Length: 4, Digest: digB},
+			{Offset: 4, Length: 4, Digest: digB},
+			{Offset: 8, Length: 4, Digest: digB},
+		},
+	}
+	mb := Manifest{
+		Size: 8,
+		Digest: digC,
+		Chunks: []ChunkEntry{
+			{Offset: 0, Length: 4, Digest: digB},
+			{Offset: 4, Length: 4, Digest: digB},
+		},
+	}
+	d := Diff(ma, mb)
+	if d.Shared != 2 {
+		t.Fatalf("shared=%d want 2", d.Shared)
+	}
+	if d.ChangedA != 1 {
+		t.Fatalf("changed_a=%d want 1", d.ChangedA)
+	}
+	if d.ChangedB != 0 {
+		t.Fatalf("changed_b=%d want 0", d.ChangedB)
+	}
+	if d.DigestEqual {
+		t.Fatal("expected digests to differ")
+	}
+
+	// Uppercase digests should still count as shared.
+	mbUpper := Manifest{
+		Size: 8,
+		Digest: strings.ToUpper(digC),
+		Chunks: []ChunkEntry{
+			{Offset: 0, Length: 4, Digest: strings.ToUpper(digB)},
+			{Offset: 4, Length: 4, Digest: strings.ToUpper(digB)},
+		},
+	}
+	d2 := Diff(ma, mbUpper)
+	if d2.Shared != 2 || d2.ChangedA != 1 {
+		t.Fatalf("case-normalized diff: shared=%d changed_a=%d", d2.Shared, d2.ChangedA)
+	}
+}
+
+func TestVerifyAcceptsUppercaseDigest(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.bin")
+	data := []byte("uppercase-digest-verify")
+	if err := os.WriteFile(src, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	opt := chunk.Options{AvgSize: 1 * 1024, MinSize: 256, MaxSize: 4 * 1024}
+	m, err := HashFile(src, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Digest = strings.ToUpper(m.Digest)
+	for i := range m.Chunks {
+		m.Chunks[i].Digest = strings.ToUpper(m.Chunks[i].Digest)
+	}
+	vr, err := Verify(src, m)
+	if err != nil || !vr.OK {
+		t.Fatalf("verify uppercase: %+v %v", vr, err)
+	}
+}
+
 func TestValidateAndDecodeErrors(t *testing.T) {
 	cases := []Manifest{
 		{Version: Version, Size: -1, Digest: strings.Repeat("a", 64)},

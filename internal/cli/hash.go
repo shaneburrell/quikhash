@@ -141,16 +141,14 @@ func hashDir(root, outDir string, opt chunk.Options, workers int) error {
 					bar.Add(1)
 					continue
 				}
-				// Resume-friendly: skip when existing manifest matches size and is not older than the file.
-				if st, err := os.Stat(path); err == nil {
-					if prev, err := manifest.ReadFile(out); err == nil && prev.Size == st.Size() && sameMTime(path, out) {
-						results[idx] = result{
-							Path: path, Out: out, Size: prev.Size,
-							Digest: prev.Digest, Chunks: len(prev.Chunks),
-						}
-						bar.Add(1)
-						continue
+				// Resume-friendly: skip when size, mtime, chunk params, and whole-file digest match.
+				if prev, ok := resumeManifest(path, out, opt); ok {
+					results[idx] = result{
+						Path: path, Out: out, Size: prev.Size,
+						Digest: prev.Digest, Chunks: len(prev.Chunks),
 					}
+					bar.Add(1)
+					continue
 				}
 				m, err := manifest.HashFile(path, opt)
 				if err != nil {
@@ -212,6 +210,39 @@ func sameMTime(file, manifestPath string) bool {
 		return false
 	}
 	return !b.ModTime().Before(a.ModTime())
+}
+
+// resumeManifest returns the existing sidecar when it is safe to reuse.
+// Requires matching size, mtime, FastCDC params, and whole-file BLAKE3.
+func resumeManifest(path, out string, opt chunk.Options) (manifest.Manifest, bool) {
+	st, err := os.Stat(path)
+	if err != nil {
+		return manifest.Manifest{}, false
+	}
+	prev, err := manifest.ReadFile(out)
+	if err != nil {
+		return manifest.Manifest{}, false
+	}
+	if prev.Size != st.Size() || !sameMTime(path, out) {
+		return manifest.Manifest{}, false
+	}
+	if prev.AvgSize != opt.AvgSize || prev.MinSize != opt.MinSize || prev.MaxSize != opt.MaxSize {
+		return manifest.Manifest{}, false
+	}
+	want, err := manifest.ParseDigest(prev.Digest)
+	if err != nil {
+		return manifest.Manifest{}, false
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return manifest.Manifest{}, false
+	}
+	got, n, err := chunk.HashFile(f)
+	_ = f.Close()
+	if err != nil || n != prev.Size || got != want {
+		return manifest.Manifest{}, false
+	}
+	return prev, true
 }
 
 func printJSON(v any) error {

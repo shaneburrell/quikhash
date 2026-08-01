@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/shaneburrell/quikhash/internal/chunk"
 )
@@ -126,7 +127,11 @@ func (m Manifest) Validate() error {
 	if m.Size < 0 {
 		return fmt.Errorf("negative size")
 	}
-	if m.Digest == "" && m.Size > 0 {
+	if m.Digest != "" {
+		if _, err := ParseDigest(m.Digest); err != nil {
+			return fmt.Errorf("digest: %w", err)
+		}
+	} else if m.Size > 0 {
 		return fmt.Errorf("missing digest")
 	}
 	var offset uint64
@@ -135,8 +140,8 @@ func (m Manifest) Validate() error {
 		if c.Length == 0 {
 			return fmt.Errorf("chunk %d: zero length", i)
 		}
-		if c.Digest == "" {
-			return fmt.Errorf("chunk %d: missing digest", i)
+		if _, err := ParseDigest(c.Digest); err != nil {
+			return fmt.Errorf("chunk %d: digest: %w", i, err)
 		}
 		if c.Offset != offset {
 			return fmt.Errorf("chunk %d: offset %d want %d", i, c.Offset, offset)
@@ -192,33 +197,66 @@ type DiffResult struct {
 	DigestEqual bool         `json:"digest_equal"`
 }
 
-// Diff compares two manifests by chunk digest (content-addressed).
+// DigestEqual reports whether two hex digests refer to the same BLAKE3 value.
+// Comparison is case-insensitive for valid hex; empty strings match only each other.
+func DigestEqual(a, b string) bool {
+	if a == b {
+		return true
+	}
+	da, err1 := ParseDigest(a)
+	db, err2 := ParseDigest(b)
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	return da == db
+}
+
+func normalizeDigestKey(s string) string {
+	d, err := ParseDigest(s)
+	if err != nil {
+		return strings.ToLower(s)
+	}
+	return d.String()
+}
+
+// Diff compares two manifests by chunk digest (content-addressed multiset).
 func Diff(a, b Manifest) DiffResult {
-	setA := make(map[string]ChunkEntry, len(a.Chunks))
-	setB := make(map[string]ChunkEntry, len(b.Chunks))
+	countA := make(map[string]int, len(a.Chunks))
+	countB := make(map[string]int, len(b.Chunks))
+	sampleA := make(map[string]ChunkEntry, len(a.Chunks))
+	sampleB := make(map[string]ChunkEntry, len(b.Chunks))
 	for _, c := range a.Chunks {
-		setA[c.Digest] = c
+		key := normalizeDigestKey(c.Digest)
+		countA[key]++
+		sampleA[key] = c
 	}
 	for _, c := range b.Chunks {
-		setB[c.Digest] = c
+		key := normalizeDigestKey(c.Digest)
+		countB[key]++
+		sampleB[key] = c
 	}
 	res := DiffResult{
 		SizeA:       a.Size,
 		SizeB:       b.Size,
-		DigestEqual: a.Digest == b.Digest,
+		DigestEqual: DigestEqual(a.Digest, b.Digest),
 	}
-	for dig, c := range setA {
-		if _, ok := setB[dig]; ok {
-			res.Shared++
-		} else {
-			res.OnlyA = append(res.OnlyA, c)
-			res.ChangedA++
+	for dig, ca := range countA {
+		cb := countB[dig]
+		shared := ca
+		if cb < shared {
+			shared = cb
+		}
+		res.Shared += shared
+		if ca > cb {
+			res.ChangedA += ca - cb
+			res.OnlyA = append(res.OnlyA, sampleA[dig])
 		}
 	}
-	for dig, c := range setB {
-		if _, ok := setA[dig]; !ok {
-			res.OnlyB = append(res.OnlyB, c)
-			res.ChangedB++
+	for dig, cb := range countB {
+		ca := countA[dig]
+		if cb > ca {
+			res.ChangedB += cb - ca
+			res.OnlyB = append(res.OnlyB, sampleB[dig])
 		}
 	}
 	return res

@@ -88,3 +88,38 @@ func TestHashFile(t *testing.T) {
 		t.Fatal("empty digest")
 	}
 }
+
+type zeroNilReader struct{}
+
+func (zeroNilReader) Read([]byte) (int, error) { return 0, nil }
+
+func TestReadFillRejectsZeroByteReads(t *testing.T) {
+	n, err := readFill(zeroNilReader{}, make([]byte, 64))
+	if n != 0 {
+		t.Fatalf("n=%d want 0", n)
+	}
+	if err == nil || !strings.Contains(err.Error(), "0 bytes") {
+		t.Fatalf("expected zero-byte error, got %v", err)
+	}
+}
+
+func TestChunkReaderRejectsZeroByteReader(t *testing.T) {
+	_, err := ChunkReader(zeroNilReader{}, -1, Options{AvgSize: 1024, MinSize: 256, MaxSize: 4096})
+	if err == nil {
+		t.Fatal("expected error from zero-byte reader")
+	}
+}
+
+func TestChunkReaderEOFFinalizesPartial(t *testing.T) {
+	// Below MinSize: no cut point until EOF finalizes the buffer as one chunk.
+	data := []byte("short")
+	sig, err := ChunkReader(bytes.NewReader(data), int64(len(data)), Options{
+		AvgSize: 1024, MinSize: 256, MaxSize: 4096,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sig.Size != int64(len(data)) || len(sig.Chunks) != 1 {
+		t.Fatalf("size=%d chunks=%d", sig.Size, len(sig.Chunks))
+	}
+}
